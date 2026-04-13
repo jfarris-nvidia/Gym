@@ -1,0 +1,61 @@
+# BLADE Benchmark — evaluate LLM analysis quality on benchmark rollouts
+#
+# Prerequisites:
+#   1. Generate Harbor task directories from skills_hub:
+#      python resources_servers/blade_benchmark/adapter/convert_to_harbor.py \
+#        --skills-hub /path/to/skills_hub \
+#        --output-dir resources_servers/blade_benchmark/harbor-tasks
+#
+#   2. Run with:
+#      ng_run "+config_paths=[resources_servers/blade_benchmark/configs/blade_benchmark.yaml]"
+#
+# Each task gives an agent access to rollout JSONL data + SKILL.md and asks it to
+# produce a diagnostic analysis report. The verifier scores the report against a
+# human-verified golden report using structural checks + LLM-as-judge.
+
+blade_benchmark:
+  responses_api_agents:
+    harbor_agent:
+      entrypoint: app.py
+      concurrency: 10
+
+      # Dataset routing — point at generated Harbor task directories.
+      # Run convert_to_harbor.py first to populate this directory.
+      harbor_datasets:
+        blade:
+          local_dataset_path: "resources_servers/blade_benchmark/harbor-tasks"
+          workdir: "/data"
+
+      # Agent — use Claude Code for BLADE analysis tasks.
+      # Claude Code can read files, run scripts, and write reports.
+      harbor_agent_name: "claude-code"
+      harbor_agent_import_path: null
+      harbor_agent_kwargs:
+        max_turns: 100
+        interleaved_thinking: true
+        enable_summarize: false
+        collect_rollout_details: true
+        trajectory_config:
+          raw_content: true
+        model_info:
+          max_input_tokens: 200000
+          max_output_tokens: 32000
+          input_cost_per_token: 0.0
+          output_cost_per_token: 0.0
+
+      # Environment — Docker for local execution.
+      harbor_environment_type: "docker"
+      harbor_environment_import_path: null
+      harbor_environment_kwargs: {}
+
+      # Model routing
+      model_server:
+        type: responses_api_models
+        name: policy_model
+
+      # Timeouts — BLADE analysis tasks are long (reading large JSONL, reasoning)
+      harbor_agent_max_timeout: 7200     # 2 hours max
+      harbor_verifier_max_timeout: 1200  # 20 minutes for judge
+      harbor_timeout_multiplier: null
+
+      harbor_jobs_dir: "resources_servers/blade_benchmark/jobs"

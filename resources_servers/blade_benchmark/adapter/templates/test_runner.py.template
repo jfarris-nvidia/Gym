@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""BLADE verifier — scores an agent's analysis report against a golden report.
+
+Reads:
+  /app/report.md          — agent's analysis report
+  /tests/golden_report.md — human-verified golden report
+  /tests/golden_metrics.json — structured metrics (optional, for deterministic checks)
+
+Writes:
+  /logs/verifier/reward.txt  — single float (0.0 - 1.0)
+  /logs/verifier/reward.json — detailed scoring breakdown
+"""
+
+import json
+import os
+import re
+import sys
+import urllib.request
+
+REPORT_PATH = "/app/report.md"
+GOLDEN_REPORT_PATH = "/tests/golden_report.md"
+GOLDEN_METRICS_PATH = "/tests/golden_metrics.json"
+REWARD_TXT = "/logs/verifier/reward.txt"
+REWARD_JSON = "/logs/verifier/reward.json"
+
+JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "")
+JUDGE_API_KEY = os.environ.get("JUDGE_API_KEY", "")
+JUDGE_BASE_URL = os.environ.get("JUDGE_BASE_URL", "")
+
+
+def read_file(path: str, max_bytes: int | None = None) -> str | None:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read(max_bytes) if max_bytes else f.read()
+    except FileNotFoundError:
+        return None
+
+
+def write_reward(score: float, details: dict) -> None:
+    os.makedirs(os.path.dirname(REWARD_TXT), exist_ok=True)
+    with open(REWARD_TXT, "w") as f:
+        f.write(f"{score:.4f}\n")
+    with open(REWARD_JSON, "w") as f:
+        json.dump(details, f, indent=2)
+
+
+def structural_score(report: str) -> dict:
+    """Score structural completeness of the report (deterministic)."""
+    scores = {}
+    scores["has_summary"] = 1.0 if re.search(r"(?i)(executive\s+summary|summary|overview)", report) else 0.0
+    scores["has_taxonomy"] = 1.0 if re.search(r"(?i)(failure|taxonomy|classification|category)", report) else 0.0
+    scores["has_examples"] = 1.0 if re.search(r"(?i)(rollout|task.*\d|example|trajectory)", report) else 0.0
+    scores["has_root_cause"] = 1.0 if re.search(r"(?i)(root\s*cause|causal|because|due\s+to|caused\s+by)", report) else 0.0
+    scores["has_metrics"] = 1.0 if re.search(r"(?i)(pass@1|pass.rate|\d+\.?\d*%|\d+/\d+)", report) else 0.0
+
+    line_count = len(report.strip().splitlines())
+    scores["length_score"] = min(1.0, max(0.0, (line_count - 100) / 400))
+
+    return scores
+
+
+def extract_json(text: str) -> dict | None:
+    """Extract a JSON object from LLM response text, handling markdown fences."""
+    # Strip markdown code fences
+    text = re.sub(r"```(?:json)?\s*", "", text)
+    text = re.sub(r"```\s*", "", text)
+    # Try parsing the whole thing first
+    try:
+        return json.loads(text.strip())
+    except json.JSONDecodeError:
+        pass
+    # Fall back to finding a JSON object (handles nested braces)
+    depth = 0
+    start = None
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                try:
+                    return json.loads(text[start : i + 1])
+                except json.JSONDecodeError:
+                    start = None
+    return None
+
+
+def llm_judge_score(report: str, golden: str) -> dict | None:
+    """Score analytical quality using LLM-as-judge."""
+    if not JUDGE_MODEL or not JUDGE_API_KEY or not JUDGE_BASE_URL:
+        return None
+
+    prompt = f"""You are judging the quality of an LLM-generated analysis report against a human-verified golden report.
+
+## Golden Report (Ground Truth)
+{golden[:8000]}
+
+## Candidate Report (To Score)
+{report[:8000]}
+
+Score the candidate on these criteria (0-3 each):
+
+1. **Dominant failure mode** — Correctly identifies the biggest bottleneck
+2. **Root cause distinction** — Separates knowledge gaps from behavioral issues
+3. **Causal narrative** — Connects failure modes into chains, not flat lists
+4. **Evidence citation** — Claims cite specific rollout IDs, steps, or errors
+5. **Cross-cutting insight** — Identifies patterns spanning categories
+6. **Within-task comparison** — Explains passing vs failing rollouts for same task
+7. **Non-obvious findings** — Contains findings only discoverable by reading data
+
+Respond with ONLY a JSON object:
+{{"dominant_failure_mode": N, "root_cause_distinction": N, "causal_narrative": N, "evidence_citation": N, "cross_cutting_insight": N, "within_task_comparison": N, "non_obvious_findings": N}}
+"""
+
+    try:
+        body = json.dumps({
+            "model": JUDGE_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 200,
+        }).encode()
+
+        url = f"{JUDGE_BASE_URL.rstrip('/')}/chat/completions"
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {JUDGE_API_KEY}",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read())
+
+        content = result["choices"][0]["message"]["content"]
+        return extract_json(content)
+    except urllib.error.URLError as e:
+        print(f"LLM judge network error: {e}", file=sys.stderr)
+    except (KeyError, IndexError) as e:
+        print(f"LLM judge response parse error: {e}", file=sys.stderr)
+    except json.JSONDecodeError as e:
+        print(f"LLM judge JSON error: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"LLM judge unexpected error ({type(e).__name__}): {e}", file=sys.stderr)
+
+    return None
+
+
+def main():
+    report = read_file(REPORT_PATH)
+    golden = read_file(GOLDEN_REPORT_PATH)
+
+    if not report:
+        print("No report found at /app/report.md — score 0", file=sys.stderr)
+        write_reward(0.0, {"error": "no_report"})
+        return
+
+    if not golden:
+        print("No golden report found — using structural scoring only", file=sys.stderr)
+        struct = structural_score(report)
+        score = sum(struct.values()) / len(struct)
+        write_reward(score, {"structural": struct, "llm_judge": None})
+        return
+
+    struct = structural_score(report)
+    struct_score = sum(struct.values()) / len(struct)
+
+    judge = llm_judge_score(report, golden)
+    judge_score = None
+    if judge:
+        max_per_criterion = 3.0
+        judge_score = sum(judge.values()) / (len(judge) * max_per_criterion)
+        final = 0.3 * struct_score + 0.7 * judge_score
+    else:
+        final = struct_score
+
+    write_reward(final, {
+        "final_score": final,
+        "structural": struct,
+        "structural_score": struct_score,
+        "llm_judge": judge,
+        "llm_judge_score": judge_score,
+    })
+
+    print(f"BLADE score: {final:.4f} (structural={struct_score:.4f}, judge={judge_score if judge_score is not None else 'N/A'})")
+
+
+if __name__ == "__main__":
+    main()

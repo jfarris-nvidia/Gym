@@ -1,0 +1,4 @@
+# Generated artifacts — run convert_to_harbor.py to regenerate
+harbor-tasks/
+data/blade_tasks.jsonl
+jobs/

@@ -1,0 +1,26 @@
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System packages + agent runtimes
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git python3 python3-pip ca-certificates curl && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    curl -fsSL https://claude.ai/install.sh | bash && \
+    curl -fsSL https://opencode.ai/install | bash && \
+    npm install -g @openai/codex && \
+    apt-get remove -y curl && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/root/.local/bin:/root/.opencode/bin:$PATH"
+
+# Analysis dependencies
+RUN pip3 install --no-cache-dir matplotlib pyyaml
+
+# Copy benchmark data and analysis tools (data/ is in the build context)
+# Harbor uploads tests/ to /tests at verify time — no COPY needed for tests
+COPY data/ /data/
+
+RUN mkdir -p /app
+WORKDIR /data

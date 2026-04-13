@@ -1,0 +1,30 @@
+# BLADE Analysis Task
+
+You are evaluating a model's performance on the **{benchmark_name}** benchmark. Your job is to analyze the rollout data and produce a deep diagnostic analysis report.
+
+## Data Available
+
+- `/data/skill/SKILL.md` — The analysis methodology and failure taxonomy. **Read this first.**
+- `/data/rollouts/` — Rollout JSONL data for **{model_name}**. Each line is one rollout with the model's response and reward.
+- `/data/skill/scripts/` — Analysis scripts (if available). These compute aggregate metrics and classify failures. Run them to get quantitative baselines, then go deeper.
+
+## What To Do
+
+1. **Read the SKILL.md** to understand the failure taxonomy and analysis methodology
+2. **Run the analysis script** (if one exists in `/data/skill/scripts/`) to get aggregate metrics
+3. **Read the actual rollout data** — examine specific failures, trace reasoning, identify patterns
+4. **Write a diagnostic report** following the methodology in SKILL.md:
+   - Executive summary with key metrics
+   - Failure taxonomy with counts and examples
+   - Root cause analysis with concrete evidence from trajectories
+   - Within-task comparisons (when a task passes some rollouts and fails others, explain why)
+   - Cross-cutting patterns and causal chains
+   - Non-obvious findings that require reading the actual data
+
+## REQUIRED: Write Report
+
+**You MUST write your analysis report to `/app/report.md` before you finish.** This is the only output that gets scored. If you do not write this file, you will receive a score of 0.
+
+The report should be a structured markdown document with the sections described above. Quality is measured by analytical depth — not just metrics, but genuine diagnostic reasoning about why the model fails.
+
+Write the file with any method (e.g., `echo '...' > /app/report.md` or a script). **Do this as your final step.**
