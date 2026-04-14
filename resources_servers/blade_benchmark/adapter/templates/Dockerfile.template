@@ -15,12 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV PATH="/root/.local/bin:/root/.opencode/bin:$PATH"
 
-# Analysis dependencies
-RUN pip3 install --no-cache-dir matplotlib pyyaml
+# Analysis dependencies + judge
+RUN pip3 install --no-cache-dir matplotlib pyyaml litellm
 
-# Copy benchmark data and analysis tools (data/ is in the build context)
+# Copy benchmark data, analysis tools, and judge (all in build context)
 # Harbor uploads tests/ to /tests at verify time — no COPY needed for tests
 COPY data/ /data/
+COPY judge/ /judge/
 
 RUN mkdir -p /app
 WORKDIR /data

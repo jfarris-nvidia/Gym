@@ -122,6 +122,7 @@ def generate_task(
     model_info: dict,
     output_dir: Path,
     judge_model: str,
+    judge_dir: Path | None = None,
 ) -> str | None:
     """Generate a Harbor task directory for one (benchmark, model) pair."""
     model_name = model_info["model_name"]
@@ -181,12 +182,30 @@ def generate_task(
     shutil.copy(TEMPLATES_DIR / "test.sh", tests_dir / "test.sh")
     os.chmod(tests_dir / "test.sh", 0o755)
 
-    shutil.copy(TEMPLATES_DIR / "test_runner.py.template", tests_dir / "test_runner.py")
+    # Copy anchor_facts.json if it exists alongside the golden report
+    anchor_facts_path = model_info["golden_report"].parent / f"{model_info['model_name']}_anchor_facts.json"
+    if anchor_facts_path.exists():
+        shutil.copy(anchor_facts_path, tests_dir / "anchor_facts.json")
+
+    # Copy judge into environment/ (Docker build context) if provided
+    if judge_dir and judge_dir.exists():
+        env_judge_dir = env_dir / "judge"
+        env_judge_dir.mkdir(exist_ok=True)
+        for f in ["blade_judge.py", "universal_checklist.json"]:
+            src = judge_dir / f
+            if src.exists():
+                shutil.copy(src, env_judge_dir / f)
+    else:
+        # Fall back to old test_runner.py template
+        shutil.copy(TEMPLATES_DIR / "test_runner.py.template", tests_dir / "test_runner.py")
 
     # solution/ (oracle — copies golden report)
+    # Include golden report in solution/ so oracle can access it during agent phase
+    # (tests/ is only uploaded during verifier phase, after the agent finishes)
     solution_dir = task_dir / "solution"
     solution_dir.mkdir()
-    solve_sh = "#!/usr/bin/env bash\ncp /tests/golden_report.md /app/report.md\n"
+    shutil.copy(model_info["golden_report"], solution_dir / "golden_report.md")
+    solve_sh = "#!/usr/bin/env bash\ncp /solution/golden_report.md /app/report.md\n"
     (solution_dir / "solve.sh").write_text(solve_sh)
     os.chmod(solution_dir / "solve.sh", 0o755)
 
@@ -200,14 +219,24 @@ def main():
     parser.add_argument("--benchmark", default=None, help="Specific benchmark name (default: all with data)")
     parser.add_argument("--judge-model", default="anthropic/claude-sonnet-4-6",
                         help="Model for LLM-as-judge scoring")
+    parser.add_argument("--judge-dir", default=None,
+                        help="Path to judge/ directory in skills_hub (contains blade_judge.py + universal_checklist.json)")
     args = parser.parse_args()
 
     skills_hub = Path(args.skills_hub)
     output_dir = Path(args.output_dir)
 
+    judge_dir = Path(args.judge_dir) if args.judge_dir else (skills_hub / "judge")
+
     if not (skills_hub / "benchmarks").exists():
         print(f"Error: {skills_hub}/benchmarks/ not found", file=sys.stderr)
         raise SystemExit(1)
+
+    if judge_dir.exists() and (judge_dir / "blade_judge.py").exists():
+        print(f"Using judge from {judge_dir}")
+    else:
+        print(f"Warning: judge not found at {judge_dir}, using fallback test_runner.py", file=sys.stderr)
+        judge_dir = None
 
     benchmarks = find_benchmarks(skills_hub)
     print(f"Found {len(benchmarks)} benchmarks")
@@ -237,7 +266,7 @@ def main():
         for model_info in models:
             task_id = generate_task(
                 bench_dir, bench_name.replace("/", "-"), model_info,
-                output_dir, args.judge_model,
+                output_dir, args.judge_model, judge_dir,
             )
             if task_id:
                 registry.append({
