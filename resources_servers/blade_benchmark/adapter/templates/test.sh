@@ -8,9 +8,9 @@ mkdir -p /logs/verifier
 if [ -f /judge/blade_judge.py ]; then
     ARGS="--report /app/report.md --golden /tests/golden_report.md --checklist /judge/universal_checklist.json --output-dir /logs/verifier/"
 
-    # Add trajectory if available
-    if [ -f /agent/trajectory.json ]; then
-        ARGS="$ARGS --trajectory /agent/trajectory.json"
+    # Add trajectory if available (Harbor writes agent logs to /logs/agent/)
+    if [ -f /logs/agent/trajectory.json ]; then
+        ARGS="$ARGS --trajectory /logs/agent/trajectory.json"
     fi
 
     # Add anchor facts if available
