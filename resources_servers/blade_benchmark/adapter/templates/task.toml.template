@@ -20,5 +20,5 @@ allow_internet = true
 
 [verifier.env]
 JUDGE_MODEL = "{judge_model}"
-JUDGE_API_KEY = "${JUDGE_API_KEY}"
-JUDGE_BASE_URL = "${JUDGE_BASE_URL}"
+JUDGE_API_KEY = "${OPENAI_API_KEY}"
+JUDGE_BASE_URL = "${OPENAI_BASE_URL}"

@@ -126,7 +126,12 @@ def generate_task(
 ) -> str | None:
     """Generate a Harbor task directory for one (benchmark, model) pair."""
     model_name = model_info["model_name"]
-    task_id = f"blade-{benchmark_name}-{model_name}"
+    # Docker compose project names can't have underscores and must be short
+    safe_bench = benchmark_name.replace("_", "-")
+    safe_model = model_name.replace("_", "-").replace(".", "-")
+    # Shorten common prefixes to keep Docker project names under ~40 chars
+    safe_bench = safe_bench.replace("agentic-heavy", "ah").replace("compiler", "comp")
+    task_id = f"blade-{safe_bench}-{safe_model}"
     task_dir = output_dir / task_id
 
     if task_dir.exists():

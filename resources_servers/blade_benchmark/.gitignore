@@ -2,3 +2,4 @@
 harbor-tasks/
 data/blade_tasks.jsonl
 jobs/
+jobs-*/
