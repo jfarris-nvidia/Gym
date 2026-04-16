@@ -91,6 +91,9 @@ class HarborAgentConfig(BaseResponsesAPIAgentConfig):
     # Cap agent timeout (seconds). Uses the task's own timeout but clamps it
     # to this maximum. Respects shorter per-task timeouts unlike harbor_agent_override_timeout.
     harbor_agent_max_timeout: Optional[int] = None
+    # Override agent setup timeout (seconds). Replaces Harbor's 360s default.
+    # Needed when install.sh is slow (e.g., first-time npm installs, apt updates).
+    harbor_agent_override_setup_timeout: Optional[int] = None
     # Override verifier timeout (seconds). Replaces the task's own verifier timeout.
     harbor_verifier_override_timeout: Optional[int] = None
     # Cap verifier timeout (seconds). Uses the task's own verifier timeout but
@@ -197,10 +200,10 @@ class HarborAgent(SimpleResponsesAPIAgent):
         self.sem = Semaphore(self.config.concurrency)
 
     def setup_webserver(self) -> FastAPI:
-        app = FastAPI()
-        app.post("/v1/responses")(self.responses)
-        app.post("/run")(self.run)
-        return app
+        # Delegate to SimpleResponsesAPIAgent.setup_webserver() to get session
+        # middleware and the /aggregate_metrics endpoint (used by ng_collect_rollouts)
+        # alongside /v1/responses and /run.
+        return super().setup_webserver()
 
     async def responses(self, body: NeMoGymResponseCreateParamsNonStreaming = Body()) -> NeMoGymResponse:
         raise NotImplementedError
@@ -373,13 +376,21 @@ class HarborAgent(SimpleResponsesAPIAgent):
         return sanitized or "unknown"
 
     def _resolve_model_base_url(self, global_config_dict: Any) -> str:
-        """Resolve model base URL from required model_server reference."""
+        """Resolve model base URL from required model_server reference.
+
+        Docker containers can't reach the host's 127.0.0.1 — rewrite to
+        host.docker.internal so agents running inside containers can reach
+        the model server running on the host.
+        """
         server_name = self.config.model_server.name
         model_server_config = get_first_server_config_dict(
             global_config_dict,
             server_name,
         )
-        return f"http://{model_server_config['host']}:{model_server_config['port']}/v1"
+        host = model_server_config["host"]
+        if self.config.harbor_environment_type == "docker" and host in ("127.0.0.1", "localhost"):
+            host = "host.docker.internal"
+        return f"http://{host}:{model_server_config['port']}/v1"
 
     def _build_job_config(
         self,
@@ -426,6 +437,11 @@ class HarborAgent(SimpleResponsesAPIAgent):
             max_timeout_sec=(
                 float(self.config.harbor_agent_max_timeout)
                 if self.config.harbor_agent_max_timeout is not None
+                else None
+            ),
+            override_setup_timeout_sec=(
+                float(self.config.harbor_agent_override_setup_timeout)
+                if self.config.harbor_agent_override_setup_timeout is not None
                 else None
             ),
             kwargs=agent_kwargs,

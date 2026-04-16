@@ -18,6 +18,13 @@ storage_mb = 20480
 gpus = 0
 allow_internet = true
 
+[environment.env]
+# Pass through NVIDIA gateway credentials for the agent (Claude Code reads these)
+ANTHROPIC_API_KEY = "${OPENAI_API_KEY}"
+ANTHROPIC_BASE_URL = "${OPENAI_BASE_URL}"
+OPENAI_API_KEY = "${OPENAI_API_KEY}"
+OPENAI_BASE_URL = "${OPENAI_BASE_URL}"
+
 [verifier.env]
 JUDGE_MODEL = "{judge_model}"
 JUDGE_API_KEY = "${OPENAI_API_KEY}"

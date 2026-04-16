@@ -42,9 +42,27 @@ harbor run --agent claude-code --path resources_servers/blade_benchmark/harbor-t
 
 ### 3. Run with NeMo-Gym
 
+Export API credentials before starting servers. Harbor's Claude Code agent reads `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` from the host shell, and the task.toml substitutes `${OPENAI_API_KEY}` / `${OPENAI_BASE_URL}` into container env:
+
 ```bash
-ng_run "+config_paths=[resources_servers/blade_benchmark/configs/blade_benchmark.yaml]"
+export OPENAI_API_KEY=...
+export OPENAI_BASE_URL=https://inference-api.nvidia.com/v1
+export ANTHROPIC_API_KEY="$OPENAI_API_KEY"
+export ANTHROPIC_BASE_URL="$OPENAI_BASE_URL"
+
+# Terminal 1: start servers
+config_paths="resources_servers/blade_benchmark/configs/blade_benchmark.yaml,\
+responses_api_models/openai_model/configs/openai_model.yaml"
+ng_run "+config_paths=[${config_paths}]"
+
+# Terminal 2: collect rollouts
+ng_collect_rollouts \
+  +agent_name=blade_benchmark \
+  +input_jsonl_fpath=resources_servers/blade_benchmark/data/blade_tasks.jsonl \
+  +output_jsonl_fpath=/tmp/blade_rollouts.jsonl
 ```
+
+Note: Claude Code expects model strings it recognizes (e.g., `aws/anthropic/bedrock-claude-sonnet-4-6`). Set `policy_model_name` in `env.yaml` accordingly.
 
 ## Architecture
 

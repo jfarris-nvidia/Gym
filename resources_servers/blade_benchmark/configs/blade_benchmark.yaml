@@ -55,6 +55,7 @@ blade_benchmark:
 
       # Timeouts — BLADE analysis tasks are long (reading large JSONL, reasoning)
       harbor_agent_max_timeout: 7200     # 2 hours max
+      harbor_agent_override_setup_timeout: 1800  # 30 min for install.sh (first-run npm/apt)
       harbor_verifier_max_timeout: 1200  # 20 minutes for judge
       harbor_timeout_multiplier: null
 
