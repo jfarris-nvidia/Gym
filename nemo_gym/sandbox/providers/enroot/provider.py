@@ -300,6 +300,7 @@ class EnrootProvider:
         exec: EnrootExecConfig | Mapping[str, Any] | None = None,
         create: EnrootCreateConfig | Mapping[str, Any] | None = None,
         probe: EnrootProbeConfig | Mapping[str, Any] | None = None,
+        isolate_network: bool = False,
     ) -> None:
         self._exec_config = _coerce_config(exec, EnrootExecConfig)
         self._create_config = _coerce_config(create, EnrootCreateConfig)
@@ -319,8 +320,22 @@ class EnrootProvider:
         for directory in (data_path, cache_path, runtime_path, self._sqsh_cache_dir):
             Path(directory).mkdir(parents=True, exist_ok=True, mode=0o700)
 
+        inherited = {
+            key: os.environ[key]
+            for key in (
+                "HOME",
+                "LANG",
+                "LC_ALL",
+                "PATH",
+                "TMPDIR",
+                "XDG_RUNTIME_DIR",
+                "ENROOT_CONFIG_PATH",
+                "ENROOT_SYSCONF_PATH",
+            )
+            if os.environ.get(key)
+        }
         self._enroot_env = {
-            **os.environ,
+            **inherited,
             "ENROOT_DATA_PATH": data_path,
             "ENROOT_CACHE_PATH": cache_path,
             "ENROOT_RUNTIME_PATH": runtime_path,
@@ -328,7 +343,10 @@ class EnrootProvider:
             # processes are not visible inside the container. Stock enroot
             # defaults this to "no"; we always force it on.
             "ENROOT_UNSHARE_PID": "yes",
+            "ENROOT_MOUNT_HOME": "no",
         }
+        if isolate_network:
+            self._enroot_env["ENROOT_UNSHARE_NET"] = "yes"
         # Serializes concurrent imports of the same image within this process.
         self._import_locks: dict[str, asyncio.Lock] = {}
 

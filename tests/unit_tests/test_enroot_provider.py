@@ -269,11 +269,16 @@ def test_constructor_requires_binary(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 
 
 def test_constructor_pins_enroot_env(fake_binary: str, tmp_path: Path) -> None:
-    provider = enroot_provider.EnrootProvider(create={"base_dir": str(tmp_path / "home")})
+    provider = enroot_provider.EnrootProvider(
+        create={"base_dir": str(tmp_path / "home")}, isolate_network=True
+    )
     env = provider._enroot_env
     assert env["ENROOT_DATA_PATH"] == str(tmp_path / "home" / "data")
     assert env["ENROOT_CACHE_PATH"] == str(tmp_path / "home" / "cache")
     assert env["ENROOT_RUNTIME_PATH"] == str(tmp_path / "home" / "runtime")
+    assert env["ENROOT_UNSHARE_PID"] == "yes"
+    assert env["ENROOT_UNSHARE_NET"] == "yes"
+    assert env["ENROOT_MOUNT_HOME"] == "no"
     # Directories are created eagerly.
     assert (tmp_path / "home" / "data").is_dir()
     assert provider._sqsh_cache_dir.is_dir()
