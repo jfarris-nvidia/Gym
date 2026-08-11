@@ -11,13 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 import io
 import tarfile
 from pathlib import Path
 from typing import Optional
 
 import pytest
-from harbor.models.task.config import EnvironmentConfig as TaskEnvironmentConfig
+from harbor.models.task.config import (
+    EnvironmentConfig as TaskEnvironmentConfig,
+    NetworkPolicy,
+)
 from harbor.models.trial.paths import TrialPaths
 
 from nemo_gym.sandbox import SandboxExecResult, SandboxHandle, SandboxSpec, SandboxStatus, register_provider
@@ -129,14 +133,26 @@ class TestValidation:
             _make_environment(tmp_path, task_env_config=TaskEnvironmentConfig(docker_image=None))
 
     def test_rejects_internet_isolation_by_default(self, tmp_path):
-        config = TaskEnvironmentConfig(docker_image="example/task:1.0", allow_internet=False)
-        with pytest.raises(ValueError, match="allow_internet"):
-            _make_environment(tmp_path, task_env_config=config)
+        with pytest.raises(ValueError, match="network_mode"):
+            _make_environment(
+                tmp_path,
+                network_policy=NetworkPolicy(network_mode="no-network"),
+            )
 
     def test_internet_isolation_opt_in(self, tmp_path):
-        config = TaskEnvironmentConfig(docker_image="example/task:1.0", allow_internet=False)
-        env = _make_environment(tmp_path, task_env_config=config, allow_unenforced_internet_isolation=True)
+        env = _make_environment(
+            tmp_path,
+            network_policy=NetworkPolicy(network_mode="no-network"),
+            allow_unenforced_internet_isolation=True,
+        )
         assert env.can_disable_internet is True
+
+    def test_rejects_conflicting_workdir_override(self, tmp_path):
+        config = TaskEnvironmentConfig(
+            docker_image="example/task:1.0", workdir="/workspace"
+        )
+        with pytest.raises(ValueError, match="workdir override conflicts"):
+            _make_environment(tmp_path, task_env_config=config, workdir="/app")
 
 
 class TestStartStop:
@@ -158,7 +174,11 @@ class TestStartStop:
         assert spec.metadata["harbor-benchmark"] == "tb-2-1"
 
         assert len(provider.exec_calls) == 1
-        assert provider.exec_calls[0]["command"] == "mkdir -p /logs/agent /logs/verifier"
+        assert provider.exec_calls[0]["command"] == (
+            "mkdir -p /logs/agent /logs/verifier && "
+            "chmod 1777 /logs /logs/agent /logs/verifier"
+        )
+        assert provider.exec_calls[0]["cwd"] == "/"
 
     @pytest.mark.asyncio
     async def test_start_passes_provider_options_through(self, tmp_path):
@@ -190,6 +210,21 @@ class TestStartStop:
         )
         await env.start(force_build=False)
         assert _provider().created_specs[0].image == "mirror.example.com/example/task:1.0"
+
+    @pytest.mark.asyncio
+    async def test_task_workdir_reaches_sandbox_spec_and_exec(self, tmp_path):
+        config = TaskEnvironmentConfig(
+            docker_image="docker.io/example/task:1.0",
+            workdir="/workspace",
+        )
+        env = _make_environment(tmp_path, task_env_config=config)
+        await env.start(force_build=False)
+        await env.exec("pwd")
+
+        assert _provider().created_specs[0].workdir == "/workspace"
+        assert _provider().exec_calls[0]["cwd"] == "/"
+        assert " /workspace" in _provider().exec_calls[0]["command"]
+        assert _provider().exec_calls[-1]["cwd"] == "/workspace"
 
     @pytest.mark.asyncio
     async def test_stop_always_kills_sandbox(self, tmp_path):
@@ -231,13 +266,30 @@ class TestExec:
         provider = _provider()
         provider.queue_exec_result(SandboxExecResult(stdout="out", stderr="err", return_code=7))
 
-        result = await env.exec("echo hi", cwd="/app", env={"A": "1"}, timeout_sec=42)
+        result = await env.exec(
+            "echo hi",
+            cwd="/app",
+            env={"A": "1"},
+            timeout_sec=42,
+            user=1000,
+        )
         assert (result.stdout, result.stderr, result.return_code) == ("out", "err", 7)
         call = provider.exec_calls[-1]
         assert call["command"] == "echo hi"
         assert call["cwd"] == "/app"
         assert call["env"] == {"A": "1"}
         assert call["timeout_s"] == 42
+        assert call["user"] == 1000
+
+    @pytest.mark.asyncio
+    async def test_exec_honors_harbor_default_user(self, tmp_path):
+        env = _make_environment(tmp_path)
+        await env.start(force_build=False)
+
+        with env.with_default_user(1001):
+            await env.exec("touch prepared")
+
+        assert _provider().exec_calls[-1]["user"] == 1001
 
     @pytest.mark.asyncio
     async def test_exec_wraps_commands_in_interactive_bash_by_default(self, tmp_path):
@@ -269,6 +321,26 @@ class TestExec:
             await env.exec("true")
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("error_type", ["timeout", "sandbox"])
+    async def test_exec_preserves_provider_failure_class(
+        self, tmp_path, error_type
+    ):
+        env = _make_environment(tmp_path)
+        await env.start(force_build=False)
+        _provider().queue_exec_result(
+            SandboxExecResult(
+                stdout=None,
+                stderr="private provider detail",
+                return_code=125,
+                error_type=error_type,
+            )
+        )
+
+        expected = asyncio.TimeoutError if error_type == "timeout" else RuntimeError
+        with pytest.raises(expected):
+            await env.exec("true")
+
+    @pytest.mark.asyncio
     async def test_exec_cpu_pin_wraps_outside_exec_shell(self, tmp_path):
         env = _make_environment(tmp_path, exec_shell="bash -ic", cpu_pin_enabled=True)
         await env.start(force_build=False)
@@ -289,9 +361,7 @@ class TestExec:
         assert _provider().exec_calls[-1]["command"] == "true"
 
     @pytest.mark.asyncio
-    async def test_exec_cpu_pin_width_tracks_task_cpu_default(self, tmp_path):
-        # Harbor defaults EnvironmentConfig.cpus to 1, so a task without an
-        # explicit cpu count pins with width 1 (matching its cgroup limit).
+    async def test_exec_cpu_pin_is_skipped_without_task_cpu_count(self, tmp_path):
         env = _make_environment(
             tmp_path,
             exec_shell=None,
@@ -301,8 +371,7 @@ class TestExec:
         await env.start(force_build=False)
         await env.exec("true")
         command = _provider().exec_calls[-1]["command"]
-        assert command.startswith("__osb_w=1; ")
-        assert command.endswith("$__osb_pin true")
+        assert command == "true"
 
     def test_cpu_pin_prefix_is_valid_posix_sh(self):
         import shutil

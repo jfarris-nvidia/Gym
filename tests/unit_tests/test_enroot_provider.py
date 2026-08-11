@@ -200,6 +200,14 @@ def test_translate_docker_uri() -> None:
     assert translate("docker.io/swebench/foo:latest") == "docker://swebench/foo:latest"
     assert translate("index.docker.io/library/ubuntu:22.04") == "docker://library/ubuntu:22.04"
     assert translate("registry-1.docker.io/swebench/foo:latest") == "docker://swebench/foo:latest"
+    assert (
+        translate("docker.io/library/python@sha256:" + "a" * 64)
+        == "docker://library/python@sha256:" + "a" * 64
+    )
+    assert (
+        translate("mcr.microsoft.com/dotnet/sdk@sha256:" + "b" * 64)
+        == "docker://mcr.microsoft.com#dotnet/sdk@sha256:" + "b" * 64
+    )
 
 
 def test_resolve_image(fake_binary: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

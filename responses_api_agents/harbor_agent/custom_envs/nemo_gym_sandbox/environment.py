@@ -28,6 +28,7 @@ builds are not supported. Logging directories are not mounted, so Harbor
 downloads ``/logs`` at the end of the trial via :meth:`download_dir`.
 """
 
+import asyncio
 import shlex
 import tarfile
 import tempfile
@@ -180,6 +181,14 @@ class NemoGymSandboxEnvironment(BaseEnvironment):
                 f"Task {self.environment_name!r} does not define environment.docker_image; "
                 "NemoGymSandboxEnvironment cannot build images from a Dockerfile."
             )
+        if (
+            self._workdir is not None
+            and self.task_env_config.workdir is not None
+            and self._workdir != self.task_env_config.workdir
+        ):
+            raise ValueError(
+                "NemoGymSandboxEnvironment workdir override conflicts with the task workdir."
+            )
 
     def _validate_internet_config(self):
         if not self.task_env_config.allow_internet and not self.can_disable_internet:
@@ -217,7 +226,7 @@ class NemoGymSandboxEnvironment(BaseEnvironment):
             image=self._resolved_image,
             ttl_s=self._sandbox_ttl_s,
             ready_timeout_s=self._sandbox_ready_timeout_s,
-            workdir=self._workdir,
+            workdir=config.workdir or self._workdir,
             env=self._sandbox_env,
             metadata=metadata,
             resources=resources,
@@ -230,13 +239,6 @@ class NemoGymSandboxEnvironment(BaseEnvironment):
                 "force_build is not supported by NemoGymSandboxEnvironment; using the task's prebuilt image %r.",
                 self._resolved_image,
             )
-        if not self.task_env_config.allow_internet:
-            self.logger.warning(
-                "Task %r requests allow_internet=false but NemoGymSandboxEnvironment does "
-                "not enforce network isolation; the sandbox keeps cluster-default egress.",
-                self.environment_name,
-            )
-
         sandbox = AsyncSandbox(
             resolve_provider_config(self._sandbox_provider),
             self._build_spec(),
@@ -247,7 +249,14 @@ class NemoGymSandboxEnvironment(BaseEnvironment):
         # Bind mounts in Harbor's Docker backend, so they must be created here
         # for the agent and verifier to have somewhere to write.
         log_dirs = f"{EnvironmentPaths.agent_dir} {EnvironmentPaths.verifier_dir}"
-        result = await self._sandbox.exec(f"mkdir -p {log_dirs}", timeout_s=60)
+        workdir = self.task_env_config.workdir or self._workdir
+        workdir_command = f" {shlex.quote(workdir)}" if workdir else ""
+        result = await self.exec(
+            f"mkdir -p {log_dirs}{workdir_command} && chmod 1777 /logs {log_dirs}",
+            cwd="/",
+            timeout_sec=60,
+            user="root",
+        )
         if result.return_code != 0:
             raise RuntimeError(
                 f"Failed to create log directories in sandbox: {result.stderr or result.stdout or '<no output>'}"
@@ -276,6 +285,7 @@ class NemoGymSandboxEnvironment(BaseEnvironment):
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         timeout_sec: int | None = None,
+        user: str | int | None = None,
     ) -> ExecResult:
         timeout_s = timeout_sec if timeout_sec is not None else self._default_exec_timeout_s
         # Harbor's docker/daytona backends use an interactive bash, so
@@ -288,10 +298,15 @@ class NemoGymSandboxEnvironment(BaseEnvironment):
                 command = f"{_cpu_pin_prefix(width)} {command}"
         result = await self._require_sandbox().exec(
             command,
-            cwd=cwd,
-            env=env,
+            cwd=cwd or self.task_env_config.workdir or self._workdir,
+            env=self._merge_env(env),
             timeout_s=timeout_s,
+            user=self._resolve_user(user),
         )
+        if result.error_type == "timeout":
+            raise asyncio.TimeoutError("NeMo Gym sandbox command timed out")
+        if result.error_type is not None:
+            raise RuntimeError("NeMo Gym sandbox command failed")
         return ExecResult(
             stdout=result.stdout,
             stderr=result.stderr,

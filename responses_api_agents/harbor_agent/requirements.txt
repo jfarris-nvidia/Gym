@@ -1,2 +1,2 @@
 -e nemo-gym[dev,sandbox] @ ../../
-harbor @ git+https://github.com/laude-institute/harbor.git@9dddd797b57ab8a0f9d6352a20fce73abbb29573
+harbor @ git+https://github.com/jfarris-nvidia/harbor.git@26a83566726b2d9c6410ce500ed70ed3a463ae48
