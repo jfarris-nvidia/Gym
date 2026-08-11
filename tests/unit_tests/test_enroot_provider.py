@@ -193,16 +193,16 @@ def test_config_validation() -> None:
 def test_translate_docker_uri() -> None:
     translate = enroot_provider._translate_docker_uri
     assert translate("ubuntu:22.04") == "docker://ubuntu:22.04"
-    assert translate("library/ubuntu:22.04") == "docker://library/ubuntu:22.04"
+    assert translate("library/ubuntu:22.04") == "docker://ubuntu:22.04"
     assert translate("nvcr.io/nvidia/pytorch:24.01") == "docker://nvcr.io#nvidia/pytorch:24.01"
     assert translate("localhost:5000/img:tag") == "docker://localhost:5000#img:tag"
     # Docker Hub canonical hosts are dropped (real API host is registry-1.docker.io).
     assert translate("docker.io/swebench/foo:latest") == "docker://swebench/foo:latest"
-    assert translate("index.docker.io/library/ubuntu:22.04") == "docker://library/ubuntu:22.04"
+    assert translate("index.docker.io/library/ubuntu:22.04") == "docker://ubuntu:22.04"
     assert translate("registry-1.docker.io/swebench/foo:latest") == "docker://swebench/foo:latest"
     assert (
         translate("docker.io/library/python@sha256:" + "a" * 64)
-        == "docker://library/python@sha256:" + "a" * 64
+        == "docker://python@sha256:" + "a" * 64
     )
     assert (
         translate("mcr.microsoft.com/dotnet/sdk@sha256:" + "b" * 64)

@@ -248,6 +248,13 @@ def _translate_docker_uri(image: str) -> str:
     """
     first, sep, rest = image.partition("/")
     if sep and first in DOCKER_HUB_HOSTS:
+        image = rest
+        first, sep, rest = image.partition("/")
+    # Docker Hub's official-image namespace is an OCI registry path, but Enroot's
+    # slash syntax denotes a Docker Hub user. Passing ``library/ubuntu`` therefore
+    # makes Enroot attempt password authentication as ``library``. Official images
+    # use the unqualified repository name in Enroot's URI grammar.
+    if sep and first == "library":
         return f"docker://{rest}"
     if sep and ("." in first or ":" in first or first == "localhost"):
         return f"docker://{first}#{rest}"
