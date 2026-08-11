@@ -301,12 +301,14 @@ class EnrootProvider:
         create: EnrootCreateConfig | Mapping[str, Any] | None = None,
         probe: EnrootProbeConfig | Mapping[str, Any] | None = None,
         isolate_network: bool = False,
+        detach_process_group: bool = True,
     ) -> None:
         self._exec_config = _coerce_config(exec, EnrootExecConfig)
         self._create_config = _coerce_config(create, EnrootCreateConfig)
         self._probe = _coerce_config(probe, EnrootProbeConfig)
         self._binary = _require_enroot()
         self._semaphore = asyncio.Semaphore(self._exec_config.concurrency)
+        self._detach_process_group = detach_process_group
 
         # Resolve and pin provider-scoped enroot paths. Falling back to a
         # provider-managed base dir keeps the provider working when XDG_* /
@@ -404,7 +406,7 @@ class EnrootProvider:
             stdin=asyncio.subprocess.DEVNULL,
             stdout=out_f,
             stderr=err_f,
-            start_new_session=True,
+            start_new_session=self._detach_process_group,
             env=self._enroot_env,
         )
         return proc, out_f, err_f

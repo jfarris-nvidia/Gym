@@ -279,6 +279,25 @@ def test_constructor_pins_enroot_env(fake_binary: str, tmp_path: Path) -> None:
     assert env["ENROOT_UNSHARE_PID"] == "yes"
     assert env["ENROOT_UNSHARE_NET"] == "yes"
     assert env["ENROOT_MOUNT_HOME"] == "no"
+
+
+async def test_start_detached_can_remain_in_controller_process_group(
+    fake_binary: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_create(*argv, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(enroot_provider.asyncio, "create_subprocess_exec", fake_create)
+    provider = enroot_provider.EnrootProvider(
+        create={"base_dir": str(tmp_path / "home")}, detach_process_group=False
+    )
+    _process, output, error = await provider._start_detached([fake_binary, "start"])
+    output.close()
+    error.close()
+    assert captured["start_new_session"] is False
     # Directories are created eagerly.
     assert (tmp_path / "home" / "data").is_dir()
     assert provider._sqsh_cache_dir.is_dir()
