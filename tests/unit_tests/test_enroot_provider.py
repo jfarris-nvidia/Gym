@@ -402,10 +402,10 @@ async def test_create_builds_argv_and_runs_probe(
     assert start_argv[-4:] == [handle.sandbox_id, "sh", "-c", expected_init]
     rc_idx = start_argv.index("--rc") + 1
     rc_path = Path(start_argv[rc_idx])
-    assert rc_path.name == ".nemo-gym-empty-rc"
+    assert rc_path.name == ".nemo-gym-entrypoint-rc"
     assert rc_path.is_file()
-    assert rc_path.read_bytes() == b""
-    assert rc_path.stat().st_mode & 0o777 == 0o600
+    assert rc_path.read_text(encoding="utf-8") == '#!/bin/sh\nexec "$@"\n'
+    assert rc_path.stat().st_mode & 0o777 == 0o700
 
 
 # The generated container name is random; the create test above needs the `list`

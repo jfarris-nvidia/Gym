@@ -373,14 +373,15 @@ class EnrootProvider:
             "ENROOT_MOUNT_HOME": "no",
         }
         # Enroot 3.5 requires --rc to name a regular file; /dev/null is a
-        # character device and is rejected before the container starts. Keep a
-        # provider-owned empty script in the private runtime directory so Docker
-        # ENTRYPOINT/CMD can be bypassed consistently across images.
+        # character device and is rejected before the container starts. The rc
+        # script receives the requested command as positional arguments, so a
+        # small controller-owned ``exec`` shim bypasses Docker ENTRYPOINT/CMD
+        # while still launching our long-lived init.
         # Do not place this under ENROOT_RUNTIME_PATH: ``enroot start`` mounts a
         # fresh tmpfs over that directory before it copies the rc file.
-        self._empty_rc_path = base / ".nemo-gym-empty-rc"
-        self._empty_rc_path.touch(mode=0o600, exist_ok=True)
-        self._empty_rc_path.chmod(0o600)
+        self._entrypoint_rc_path = base / ".nemo-gym-entrypoint-rc"
+        self._entrypoint_rc_path.write_text('#!/bin/sh\nexec "$@"\n', encoding="utf-8")
+        self._entrypoint_rc_path.chmod(0o700)
         if isolate_network:
             self._enroot_env["ENROOT_UNSHARE_NET"] = "yes"
         # Serializes concurrent imports of the same image within this process.
@@ -549,7 +550,7 @@ class EnrootProvider:
         # which replaces /etc/rc entirely. We pass an empty script so the init
         # command (argv after the container name) runs directly.
         if self._create_config.bypass_entrypoint:
-            argv += ["--rc", str(self._empty_rc_path)]
+            argv += ["--rc", str(self._entrypoint_rc_path)]
         argv += list(self._create_config.extra_start_args)
         # Tag the init with the (unique) container name so the nested-in-pyxis PID
         # fallback can find THIS container's init process in /proc unambiguously. The
