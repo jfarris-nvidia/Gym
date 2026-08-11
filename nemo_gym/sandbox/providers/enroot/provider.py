@@ -227,6 +227,7 @@ class _EnrootInstance:
     env: dict[str, str] = field(default_factory=dict)
     container_pid: int | None = None  # host PID of the container init (for exec)
     start_pgid: int | None = None  # process group of the detached `enroot start`
+    start_in_new_session: bool = True
     proc: Any = None  # asyncio subprocess handle for the detached start
 
 
@@ -532,6 +533,7 @@ class EnrootProvider:
             image=spec.image,
             env=dict(spec.env),
             start_pgid=proc.pid,
+            start_in_new_session=self._detach_process_group,
             proc=proc,
         )
         handle = SandboxHandle(sandbox_id=name, provider_name=self.name, raw=instance)
@@ -661,12 +663,15 @@ class EnrootProvider:
                 await asyncio.sleep(probe.stable_delay_s)
 
     def _kill_start_group(self, instance: _EnrootInstance) -> None:
-        """Best-effort SIGTERM then SIGKILL of the detached start's process group."""
+        """Best-effort termination without signaling the controller's process group."""
         if instance.start_pgid is None:
             return
         for sig in (signal.SIGTERM, signal.SIGKILL):
             with contextlib.suppress(ProcessLookupError):
-                os.killpg(instance.start_pgid, sig)
+                if instance.start_in_new_session:
+                    os.killpg(instance.start_pgid, sig)
+                elif instance.proc is not None:
+                    instance.proc.send_signal(sig)
 
     async def _cleanup_failed_create_handle(self, handle: SandboxHandle) -> None:
         """Best-effort teardown of a sandbox that failed to start or verify."""

@@ -279,6 +279,8 @@ def test_constructor_pins_enroot_env(fake_binary: str, tmp_path: Path) -> None:
     assert env["ENROOT_UNSHARE_PID"] == "yes"
     assert env["ENROOT_UNSHARE_NET"] == "yes"
     assert env["ENROOT_MOUNT_HOME"] == "no"
+    assert (tmp_path / "home" / "data").is_dir()
+    assert provider._sqsh_cache_dir.is_dir()
 
 
 async def test_start_detached_can_remain_in_controller_process_group(
@@ -298,9 +300,30 @@ async def test_start_detached_can_remain_in_controller_process_group(
     output.close()
     error.close()
     assert captured["start_new_session"] is False
-    # Directories are created eagerly.
-    assert (tmp_path / "home" / "data").is_dir()
-    assert provider._sqsh_cache_dir.is_dir()
+
+
+def test_attached_start_termination_signals_only_child(
+    fake_binary: str, tmp_path: Path
+) -> None:
+    signals: list[int] = []
+
+    class Process:
+        def send_signal(self, value: int) -> None:
+            signals.append(value)
+
+    provider = enroot_provider.EnrootProvider(create={"base_dir": str(tmp_path)})
+    instance = enroot_provider._EnrootInstance(
+        name="sandbox",
+        sqsh_path=tmp_path / "image.sqsh",
+        staging_dir=tmp_path,
+        mount_point="/mnt/nemo-gym",
+        image="ubuntu:22.04",
+        start_pgid=123,
+        start_in_new_session=False,
+        proc=Process(),
+    )
+    provider._kill_start_group(instance)
+    assert signals == [enroot_provider.signal.SIGTERM, enroot_provider.signal.SIGKILL]
 
 
 # --------------------------------------------------------------------------- #
