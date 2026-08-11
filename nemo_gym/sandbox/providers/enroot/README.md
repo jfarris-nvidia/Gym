@@ -141,7 +141,7 @@ enroot:
 | `sqsh_cache_dir` | `<base>/sqsh` | Where imported squashfs images are cached (keyed by image name). |
 | `rw` | `true` | Start the container with a writable root filesystem (`--rw`). |
 | `remap_root` | `false` | Remap the launching user to root inside the container (`--root`). |
-| `init_command` | `while true; do sleep 86400; done` | The long-lived init keeping the container alive between `exec` calls (portable across busybox/coreutils). |
+| `init_command` | trapped `sleep 86400` loop | The portable long-lived init keeping the container alive between `exec` calls; TERM kills and reaps the current child so mounts can be removed. |
 | `import_timeout_s` | `1800` | Max seconds for `enroot import` (image pull/convert). |
 | `create_timeout_s` | `600` | Max seconds for `enroot create` (rootfs unpack). |
 | `start_timeout_s` | `600` | Max seconds to wait for the container init PID to appear. |

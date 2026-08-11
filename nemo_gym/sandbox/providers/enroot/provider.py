@@ -58,8 +58,12 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_MOUNT_POINT = "/sandbox"
 CONTAINER_NAME_PREFIX = "nemo-gym-"
 # Portable init: keep the container alive without relying on `sleep infinity`,
-# which busybox `sleep` rejects. A shell loop works on any image with `sh`.
-DEFAULT_INIT_COMMAND = "while true; do sleep 86400; done"
+# which busybox `sleep` rejects. The trap explicitly terminates and reaps the
+# current sleep child so stopping the shell also releases its mount namespace.
+DEFAULT_INIT_COMMAND = (
+    "trap 'kill \"$child\" 2>/dev/null; wait \"$child\" 2>/dev/null; exit 0' TERM INT; "
+    'while :; do sleep 86400 & child=$!; wait "$child"; done'
+)
 READY_PROBE_COMMAND = (
     f"printf enroot-sandbox-ready > {DEFAULT_MOUNT_POINT}/.nemo-gym-ready && printf enroot-sandbox-ready"
 )
