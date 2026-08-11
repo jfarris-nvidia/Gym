@@ -289,10 +289,12 @@ def test_constructor_pins_enroot_env(fake_binary: str, tmp_path: Path) -> None:
     assert env["ENROOT_DATA_PATH"] == str(tmp_path / "home" / "data")
     assert env["ENROOT_CACHE_PATH"] == str(tmp_path / "home" / "cache")
     assert env["ENROOT_RUNTIME_PATH"] == str(tmp_path / "home" / "runtime")
+    assert env["ENROOT_TEMP_PATH"] == str(tmp_path / "home" / "tmp")
     assert env["ENROOT_UNSHARE_PID"] == "yes"
     assert env["ENROOT_UNSHARE_NET"] == "yes"
     assert env["ENROOT_MOUNT_HOME"] == "no"
     assert (tmp_path / "home" / "data").is_dir()
+    assert (tmp_path / "home" / "tmp").is_dir()
     assert provider._sqsh_cache_dir.is_dir()
 
 

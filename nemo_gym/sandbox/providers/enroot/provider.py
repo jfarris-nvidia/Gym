@@ -155,6 +155,7 @@ class EnrootCreateConfig:
     data_path: str | None = None
     cache_path: str | None = None
     runtime_path: str | None = None
+    temp_path: str | None = None
     sqsh_cache_dir: str | None = None
     rw: bool = True
     remap_root: bool = False
@@ -348,8 +349,15 @@ class EnrootProvider:
         data_path = cfg.data_path or os.environ.get("ENROOT_DATA_PATH") or str(base / "data")
         cache_path = cfg.cache_path or os.environ.get("ENROOT_CACHE_PATH") or str(base / "cache")
         runtime_path = cfg.runtime_path or os.environ.get("ENROOT_RUNTIME_PATH") or str(base / "runtime")
+        temp_path = cfg.temp_path or os.environ.get("ENROOT_TEMP_PATH") or str(base / "tmp")
         self._sqsh_cache_dir = Path(cfg.sqsh_cache_dir or (base / "sqsh"))
-        for directory in (data_path, cache_path, runtime_path, self._sqsh_cache_dir):
+        for directory in (
+            data_path,
+            cache_path,
+            runtime_path,
+            temp_path,
+            self._sqsh_cache_dir,
+        ):
             Path(directory).mkdir(parents=True, exist_ok=True, mode=0o700)
 
         inherited = {
@@ -371,6 +379,7 @@ class EnrootProvider:
             "ENROOT_DATA_PATH": data_path,
             "ENROOT_CACHE_PATH": cache_path,
             "ENROOT_RUNTIME_PATH": runtime_path,
+            "ENROOT_TEMP_PATH": temp_path,
             # Isolate each container's /proc so sibling sandboxes and host
             # processes are not visible inside the container. Stock enroot
             # defaults this to "no"; we always force it on.
