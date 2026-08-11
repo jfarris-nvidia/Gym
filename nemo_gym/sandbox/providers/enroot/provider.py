@@ -485,7 +485,12 @@ class EnrootProvider:
                 target.unlink(missing_ok=True)
             # Import to a unique temp path then atomically rename so concurrent
             # (cross-process) creates never observe a half-written squashfs.
-            tmp = self._sqsh_cache_dir / f".{key}.{uuid.uuid4().hex}.tmp"
+            # Enroot 3.5 requires an output path ending in ``.sqsh``.  It can
+            # build a valid filesystem at another suffix and still exit 1,
+            # which makes large cold imports look corrupt after completion.
+            # Keep the unique hidden staging name, but retain the recognized
+            # extension before atomically publishing the cache entry.
+            tmp = self._sqsh_cache_dir / f".{key}.{uuid.uuid4().hex}.tmp.sqsh"
             argv = [self._binary, "import", "-o", str(tmp), *self._create_config.extra_import_args, import_uri]
             try:
                 code, _out, err = await self._run(argv, timeout_s=self._create_config.import_timeout_s)

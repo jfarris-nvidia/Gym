@@ -569,7 +569,10 @@ async def test_ensure_image_imports_and_caches(
     def responder(argv: list[str]) -> tuple[int, str, str]:
         # Simulate a successful import by writing the -o target file.
         out_idx = argv.index("-o") + 1
-        Path(argv[out_idx]).write_bytes(b"imported")
+        import_target = Path(argv[out_idx])
+        assert import_target.name.startswith(".")
+        assert import_target.name.endswith(".tmp.sqsh")
+        import_target.write_bytes(b"imported")
         assert argv[-1] == "docker://ubuntu:22.04"
         return (0, "", "")
 
