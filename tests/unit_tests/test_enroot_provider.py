@@ -400,7 +400,12 @@ async def test_create_builds_argv_and_runs_probe(
     assert _contains_seq(start_argv, ["-e", "NVIDIA_VISIBLE_DEVICES=0"])
     expected_init = f"{enroot_provider.DEFAULT_INIT_COMMAND}  # {handle.sandbox_id}"
     assert start_argv[-4:] == [handle.sandbox_id, "sh", "-c", expected_init]
-    assert _contains_seq(start_argv, ["--rc", "/dev/null"])
+    rc_idx = start_argv.index("--rc") + 1
+    rc_path = Path(start_argv[rc_idx])
+    assert rc_path.name == ".nemo-gym-empty-rc"
+    assert rc_path.is_file()
+    assert rc_path.read_bytes() == b""
+    assert rc_path.stat().st_mode & 0o777 == 0o600
 
 
 # The generated container name is random; the create test above needs the `list`

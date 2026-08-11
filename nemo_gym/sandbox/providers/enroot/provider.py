@@ -372,6 +372,13 @@ class EnrootProvider:
             "ENROOT_UNSHARE_PID": "yes",
             "ENROOT_MOUNT_HOME": "no",
         }
+        # Enroot 3.5 requires --rc to name a regular file; /dev/null is a
+        # character device and is rejected before the container starts. Keep a
+        # provider-owned empty script in the private runtime directory so Docker
+        # ENTRYPOINT/CMD can be bypassed consistently across images.
+        self._empty_rc_path = Path(runtime_path) / ".nemo-gym-empty-rc"
+        self._empty_rc_path.touch(mode=0o600, exist_ok=True)
+        self._empty_rc_path.chmod(0o600)
         if isolate_network:
             self._enroot_env["ENROOT_UNSHARE_NET"] = "yes"
         # Serializes concurrent imports of the same image within this process.
@@ -540,7 +547,7 @@ class EnrootProvider:
         # which replaces /etc/rc entirely. We pass an empty script so the init
         # command (argv after the container name) runs directly.
         if self._create_config.bypass_entrypoint:
-            argv += ["--rc", "/dev/null"]
+            argv += ["--rc", str(self._empty_rc_path)]
         argv += list(self._create_config.extra_start_args)
         # Tag the init with the (unique) container name so the nested-in-pyxis PID
         # fallback can find THIS container's init process in /proc unambiguously. The
