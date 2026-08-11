@@ -339,6 +339,40 @@ def test_attached_start_termination_signals_only_child(
     assert signals == [enroot_provider.signal.SIGTERM, enroot_provider.signal.SIGKILL]
 
 
+async def test_graceful_attached_start_termination_waits_before_escalation(
+    fake_binary: str, tmp_path: Path
+) -> None:
+    signals: list[int] = []
+
+    class Process:
+        returncode: int | None = None
+
+        def send_signal(self, value: int) -> None:
+            signals.append(value)
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+    process = Process()
+    provider = enroot_provider.EnrootProvider(create={"base_dir": str(tmp_path)})
+    instance = enroot_provider._EnrootInstance(
+        name="sandbox",
+        sqsh_path=tmp_path / "image.sqsh",
+        staging_dir=tmp_path,
+        mount_point="/mnt/nemo-gym",
+        image="ubuntu:22.04",
+        start_pgid=123,
+        start_in_new_session=False,
+        proc=process,
+    )
+
+    await provider._terminate_start(instance)
+
+    assert signals == [enroot_provider.signal.SIGTERM]
+    assert process.returncode == 0
+
+
 # --------------------------------------------------------------------------- #
 # create
 # --------------------------------------------------------------------------- #

@@ -65,6 +65,7 @@ READY_PROBE_COMMAND = (
 )
 READY_PROBE_EXPECTED = "enroot-sandbox-ready"
 SANDBOX_RUNTIME_RETURN_CODE = 125
+START_TERMINATE_GRACE_S = 5.0
 # Best-effort stderr markers indicating enroot itself (not the user's command)
 # failed to run the command. The narrow nsenter/proc entries are substring-matched;
 # "[error]" is checked via line-start in _is_runtime_failure — enroot prefixes its
@@ -707,13 +708,36 @@ class EnrootProvider:
                 elif instance.proc is not None:
                     instance.proc.send_signal(sig)
 
+    def _signal_start(self, instance: _EnrootInstance, sig: signal.Signals) -> None:
+        """Signal the detached wrapper without touching the controller's group."""
+        if instance.start_pgid is None:
+            return
+        with contextlib.suppress(ProcessLookupError):
+            if instance.start_in_new_session:
+                os.killpg(instance.start_pgid, sig)
+            elif instance.proc is not None:
+                instance.proc.send_signal(sig)
+
+    async def _terminate_start(self, instance: _EnrootInstance) -> None:
+        """Give Enroot time to unmount its rootfs before escalating to SIGKILL."""
+        if instance.proc is None:
+            self._kill_start_group(instance)
+            return
+        if instance.proc.returncode is not None:
+            return
+        self._signal_start(instance, signal.SIGTERM)
+        try:
+            await asyncio.wait_for(instance.proc.wait(), timeout=START_TERMINATE_GRACE_S)
+            return
+        except asyncio.TimeoutError:
+            self._signal_start(instance, signal.SIGKILL)
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(instance.proc.wait(), timeout=START_TERMINATE_GRACE_S)
+
     async def _cleanup_failed_create_handle(self, handle: SandboxHandle) -> None:
         """Best-effort teardown of a sandbox that failed to start or verify."""
         instance = handle.raw
-        self._kill_start_group(instance)
-        if instance.proc is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(instance.proc.wait(), timeout=self._exec_config.default_timeout_s)
+        await self._terminate_start(instance)
         with contextlib.suppress(Exception):
             await self._run(
                 [self._binary, "remove", "-f", instance.name],
@@ -906,10 +930,7 @@ class EnrootProvider:
         """Kill the container init, remove the rootfs, and clean up the staging dir."""
         instance = handle.raw
 
-        self._kill_start_group(instance)
-        if instance.proc is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(instance.proc.wait(), timeout=self._exec_config.default_timeout_s)
+        await self._terminate_start(instance)
 
         remove_error: Exception | None = None
         try:
