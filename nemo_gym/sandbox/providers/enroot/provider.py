@@ -256,7 +256,12 @@ def _translate_docker_uri(image: str) -> str:
     # validated against the stock 3.5 importer used on cw-dfw.
     digest_match = IMMUTABLE_DIGEST_SUFFIX.search(image)
     if digest_match is not None:
-        image = f"{image[: digest_match.start()]}:{digest_match.group('digest')}"
+        repository = image[: digest_match.start()]
+        last_slash = repository.rfind("/")
+        tag_separator = repository.find(":", last_slash + 1)
+        if tag_separator >= 0:
+            repository = repository[:tag_separator]
+        image = f"{repository}:{digest_match.group('digest')}"
 
     first, sep, rest = image.partition("/")
     if sep and first in DOCKER_HUB_HOSTS:

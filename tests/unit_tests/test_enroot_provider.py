@@ -209,6 +209,18 @@ def test_translate_docker_uri() -> None:
         translate("mcr.microsoft.com/dotnet/sdk@sha256:" + "b" * 64)
         == "docker://mcr.microsoft.com#dotnet/sdk:sha256:" + "b" * 64
     )
+    assert (
+        translate("docker.io/library/python:3.11-bookworm@sha256:" + "a" * 64)
+        == "docker://python:sha256:" + "a" * 64
+    )
+    assert (
+        translate("mcr.microsoft.com/dotnet/sdk:9.0@sha256:" + "b" * 64)
+        == "docker://mcr.microsoft.com#dotnet/sdk:sha256:" + "b" * 64
+    )
+    assert (
+        translate("localhost:5000/team/image:tag@sha256:" + "c" * 64)
+        == "docker://localhost:5000#team/image:sha256:" + "c" * 64
+    )
 
 
 def test_resolve_image(fake_binary: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
