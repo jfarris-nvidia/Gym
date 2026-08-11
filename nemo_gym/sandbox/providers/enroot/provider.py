@@ -376,7 +376,9 @@ class EnrootProvider:
         # character device and is rejected before the container starts. Keep a
         # provider-owned empty script in the private runtime directory so Docker
         # ENTRYPOINT/CMD can be bypassed consistently across images.
-        self._empty_rc_path = Path(runtime_path) / ".nemo-gym-empty-rc"
+        # Do not place this under ENROOT_RUNTIME_PATH: ``enroot start`` mounts a
+        # fresh tmpfs over that directory before it copies the rc file.
+        self._empty_rc_path = base / ".nemo-gym-empty-rc"
         self._empty_rc_path.touch(mode=0o600, exist_ok=True)
         self._empty_rc_path.chmod(0o600)
         if isolate_network:
