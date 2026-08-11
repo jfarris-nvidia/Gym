@@ -28,6 +28,7 @@ import hashlib
 import logging
 import os
 import posixpath
+import re
 import shlex
 import shutil
 import signal
@@ -81,6 +82,7 @@ ENROOT_MISSING_CONTAINER_MARKERS = ("does not exist", "no such", "not found")
 # than passed as enroot's REGISTRY fragment) so enroot uses its configured Hub
 # default — the real Hub registry API is registry-1.docker.io, not "docker.io".
 DOCKER_HUB_HOSTS = frozenset({"docker.io", "index.docker.io", "registry-1.docker.io"})
+IMMUTABLE_DIGEST_SUFFIX = re.compile(r"@(?P<digest>sha256:[0-9a-f]{64})$")
 
 
 class EnrootCreateError(SandboxCreateError):
@@ -246,6 +248,16 @@ def _translate_docker_uri(image: str) -> str:
     non-JSON and the import fails. Dropping them lets enroot use its configured
     Hub default (e.g. ``docker://swebench/foo:tag``).
     """
+    # Enroot 3.5's URI grammar uses ``@`` for the registry user, not for an OCI
+    # digest. Its Docker importer does, however, pass the tag component directly
+    # to the registry's ``manifests/<reference>`` endpoint, which accepts a
+    # digest. Rewrite the standard OCI form into that exact-digest reference:
+    # ``repo@sha256:abc`` -> ``repo:sha256:abc``. This remains immutable and was
+    # validated against the stock 3.5 importer used on cw-dfw.
+    digest_match = IMMUTABLE_DIGEST_SUFFIX.search(image)
+    if digest_match is not None:
+        image = f"{image[: digest_match.start()]}:{digest_match.group('digest')}"
+
     first, sep, rest = image.partition("/")
     if sep and first in DOCKER_HUB_HOSTS:
         image = rest

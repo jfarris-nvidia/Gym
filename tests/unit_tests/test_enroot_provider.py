@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 import io
 import shlex
 import shutil
@@ -202,11 +203,11 @@ def test_translate_docker_uri() -> None:
     assert translate("registry-1.docker.io/swebench/foo:latest") == "docker://swebench/foo:latest"
     assert (
         translate("docker.io/library/python@sha256:" + "a" * 64)
-        == "docker://python@sha256:" + "a" * 64
+        == "docker://python:sha256:" + "a" * 64
     )
     assert (
         translate("mcr.microsoft.com/dotnet/sdk@sha256:" + "b" * 64)
-        == "docker://mcr.microsoft.com#dotnet/sdk@sha256:" + "b" * 64
+        == "docker://mcr.microsoft.com#dotnet/sdk:sha256:" + "b" * 64
     )
 
 
@@ -529,6 +530,26 @@ async def test_ensure_image_imports_and_caches(
     # A second call hits the cache — no new import.
     second = await provider._ensure_image("ubuntu:22.04")
     assert second == first
+    assert len([c for c in rec.calls if "import" in c["argv"]]) == 1
+
+
+async def test_ensure_image_imports_immutable_reference_by_exact_digest(
+    fake_binary: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    digest = "a" * 64
+    image = f"docker.io/library/ubuntu@sha256:{digest}"
+
+    def responder(argv: list[str]) -> tuple[int, str, str]:
+        out_idx = argv.index("-o") + 1
+        Path(argv[out_idx]).write_bytes(b"immutable")
+        assert argv[-1] == f"docker://ubuntu:sha256:{digest}"
+        return (0, "", "")
+
+    provider, rec, _sr = _make_provider(monkeypatch, responder, tmp_path)
+    imported = await provider._ensure_image(image)
+
+    assert imported.read_bytes() == b"immutable"
+    assert imported.name == f"{hashlib.sha256(image.encode()).hexdigest()[:16]}.sqsh"
     assert len([c for c in rec.calls if "import" in c["argv"]]) == 1
 
 
