@@ -145,7 +145,7 @@ class TestValidation:
             network_policy=NetworkPolicy(network_mode="no-network"),
             allow_unenforced_internet_isolation=True,
         )
-        assert env.can_disable_internet is True
+        assert env.capabilities.disable_internet is True
 
     def test_rejects_conflicting_workdir_override(self, tmp_path):
         config = TaskEnvironmentConfig(

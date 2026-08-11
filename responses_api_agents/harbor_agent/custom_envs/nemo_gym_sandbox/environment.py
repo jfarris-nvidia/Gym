@@ -37,6 +37,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Optional
 
 from harbor.environments.base import BaseEnvironment, ExecResult
+from harbor.environments.capabilities import EnvironmentCapabilities
 from harbor.models.environment_type import EnvironmentType
 from harbor.models.trial.paths import EnvironmentPaths
 
@@ -157,16 +158,10 @@ class NemoGymSandboxEnvironment(BaseEnvironment):
         return getattr(EnvironmentType, "NEMO_GYM_SANDBOX", EnvironmentType.DOCKER)
 
     @property
-    def is_mounted(self) -> bool:
-        return False
-
-    @property
-    def supports_gpus(self) -> bool:
-        return False
-
-    @property
-    def can_disable_internet(self) -> bool:
-        return self._allow_unenforced_internet_isolation
+    def capabilities(self) -> EnvironmentCapabilities:
+        return EnvironmentCapabilities(
+            disable_internet=self._allow_unenforced_internet_isolation
+        )
 
     def _validate_definition(self):
         if not self._sandbox_provider:
@@ -191,7 +186,10 @@ class NemoGymSandboxEnvironment(BaseEnvironment):
             )
 
     def _validate_internet_config(self):
-        if not self.task_env_config.allow_internet and not self.can_disable_internet:
+        if (
+            not self.task_env_config.allow_internet
+            and not self._allow_unenforced_internet_isolation
+        ):
             raise ValueError(
                 f"Task {self.environment_name!r} requires allow_internet=false, which "
                 "NemoGymSandboxEnvironment cannot enforce. Set "
